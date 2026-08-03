@@ -35,7 +35,9 @@ class AnthropicAIClient(AIClient):
         # Useful links with request/response samples:
         #   - https://docs.anthropic.com/en/api/overview
         #   - https://docs.anthropic.com/en/api/messages
-        raise NotImplementedError
+        super().__init__(endpoint, model_name, system_prompt, api_key)
+        self._client = Anthropic(api_key=api_key)
+        self._async_client = AsyncAnthropic(api_key=api_key)
 
     def response(self, messages: list[Message], **kwargs) -> Message:
         """
@@ -58,7 +60,16 @@ class AnthropicAIClient(AIClient):
         # - Call client
         # - Print response to console
         # - Return ASSISTANT message
-        raise NotImplementedError
+        if "max_tokens" not in kwargs:
+            kwargs["max_tokens"] = 1024
+        response = self._client.messages.create(
+            model=self._model_name,
+            messages=[{"role": msg.role.value, "content": msg.content} for msg in messages],
+            **kwargs
+        )
+        text_response = " ".join([block.text for block in response.content])
+        print(text_response)
+        return Message(role=Role.ASSISTANT, content=text_response)
 
     async def stream_response(self, messages: list[Message], **kwargs) -> Message:
         """
@@ -84,4 +95,20 @@ class AnthropicAIClient(AIClient):
         # - Handle stream with chunks
         # - Print response to console
         # - Return ASSISTANT message
-        raise NotImplementedError
+        if "max_tokens" not in kwargs:
+            kwargs["max_tokens"] = 1024
+        async with self._async_client.messages.stream(
+            model=self._model_name,
+            messages=[{"role": msg.role.value, "content": msg.content} for msg in messages],
+            **kwargs
+        ) as stream:
+            full_response = ""
+            async for event in stream:
+                if event.type == "content_block_delta":
+                    delta = event.delta.text
+                    print(delta, end="", flush=True)
+                    full_response += delta
+                else:
+                    # Handle other event types if necessary
+                    pass
+            return Message(role=Role.ASSISTANT, content=full_response)
