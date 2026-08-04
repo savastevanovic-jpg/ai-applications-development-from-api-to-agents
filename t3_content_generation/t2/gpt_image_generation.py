@@ -34,3 +34,18 @@ from t3_content_generation._openai_client import OpenAIClientT3
 #   - Use OpenAIClientT3 to connect to OpenAI API
 #   - Use /v1/images/generations endpoint
 #   - The image will be returned in base64 format
+client = OpenAIClientT3(OPENAI_HOST + "/v1/images/generations")
+response = client.call(
+    model="gpt-image-2",
+    prompt="Smiling catdog",
+    size="1024x1024",
+    n=1
+)
+image_base64 = response["data"][0]["b64_json"]
+# Decode the base64 image and save it locally
+image_data = base64.b64decode(image_base64)
+timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+image_filename = f"smiling_catdog_{timestamp}.png"
+with open(image_filename, "wb") as f:
+    f.write(image_data)
+print(f"Image saved as {image_filename}") 
