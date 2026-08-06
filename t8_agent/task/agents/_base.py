@@ -16,7 +16,7 @@ class BaseAgent(ABC):
         """Initialise the agent.
 
         Args:
-            model: Provider-specific model identifier (e.g. 'gpt-5.2', 'claude-sonnet-4.5').
+            model: Provider-specific model identifier (e.g. 'claude-sonnet-4.5').
             api_key: Secret key used to authenticate with the LLM provider.
             tools: Optional list of tools the agent may call. Each tool is
                 indexed by its ``name`` for fast lookup during execution.
@@ -30,9 +30,14 @@ class BaseAgent(ABC):
         """
         #TODO:
         # 1. Validate `api_key` — raise ValueError("API key cannot be null or empty") if it is empty or blank
+        if not api_key:
+            raise ValueError("API key cannot be null or empty")
         # 2. Assign `self._model`, `self._api_key`, `self._system_prompt`
+        self._model = model
+        self._api_key = api_key
+        self._system_prompt = system_prompt
         # 3. Build `self._tools_dict` as {tool.name: tool} for each tool in `tools`
-        raise NotImplementedError()
+        self._tools_dict = {tool.name: tool for tool in tools} if tools else {}
 
     @abstractmethod
     def get_response(self, messages: list[Message], print_request: bool = True) -> Message:

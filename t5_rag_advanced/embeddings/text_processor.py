@@ -38,6 +38,41 @@ class TextProcessor:
     #   - save (insert) embeddings and chunks to DB
     #       hint 1: embeddings should be saved as string list
     #       hint 2: embeddings string list should be casted to vector ({embeddings}::vector)
+    def process_text_file(self, file_name: str, chunk_size: int, overlap: int, dimensions: int, truncate_table: bool = False):
+        # Truncate table if needed
+        if truncate_table:
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("TRUNCATE TABLE vectors;")
+                    conn.commit()
+
+        # Load content from file
+        with open(file_name, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Generate chunks
+        chunks = chunk_text(content, chunk_size, overlap)
+
+        # Generate embeddings for chunks
+        embeddings_dict = self.embeddings_client.get_embeddings(chunks, dimensions)
+
+        # Save embeddings and chunks to DB
+        with self._get_connection() as conn:
+            with conn.cursor() as cursor:
+                for i, chunk in enumerate(chunks):
+                    embedding = embeddings_dict[i]
+                    embedding_str = str(embedding)
+                    cursor.execute(
+                        "INSERT INTO vectors (text, embedding) VALUES (%s, %s::vector);",
+                        (chunk, embedding_str)
+                    )
+                conn.commit()
+        #TODO: query length of vectors table and print it out
+        with self._get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) FROM vectors;")
+                count = cursor.fetchone()[0]
+        print(f"Total vectors in database: {count}")
 
 
     #TODO:
@@ -50,6 +85,29 @@ class TextProcessor:
     #     hint 3: You need to extract `text` from `vectors` table
     #     hint 4: You need to filter distance in WHERE clause
     #     hint 5: To get top k use `limit`
+    def search(self, search_mode: SearchMode, user_request: str, top_k: int, min_score_threshold: float, dimensions: int):
+        # Generate embeddings for user request
+        user_embedding_dict = self.embeddings_client.get_embeddings(user_request, dimensions)
+        user_embedding = user_embedding_dict[0]
+        user_embedding_str = str(user_embedding)
+
+        # Determine distance operator based on search mode
+        distance_operator = "<->" if search_mode == SearchMode.EUCLIDIAN_DISTANCE else "<=>"
+
+        # Search in DB for relevant context
+        with self._get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                query = f"""
+                    SELECT text, embedding {distance_operator} %s::vector AS distance
+                    FROM vectors
+                    WHERE embedding {distance_operator} %s::vector >= %s
+                    ORDER BY distance
+                    LIMIT %s;
+                """
+                cursor.execute(query, (user_embedding_str, user_embedding_str, min_score_threshold, top_k))
+                results = cursor.fetchall()
+
+        return "\n\n".join([row['text'] for row in results])
 
 
 # SELECT text, embedding <->  '[0.23, -0.45, 0.67, ..., 0.12]'::vector AS distance

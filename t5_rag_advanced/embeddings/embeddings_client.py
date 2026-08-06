@@ -1,8 +1,6 @@
 import json
 
-import requests
-
-
+from langchain_huggingface import HuggingFaceEmbeddings
 
 
 class EmbeddingsClient:
@@ -10,12 +8,10 @@ class EmbeddingsClient:
     _api_key: str
 
     def __init__(self, endpoint: str, model_name: str, api_key: str):
-        if not api_key or api_key.strip() == "":
-            raise ValueError("API key cannot be null or empty")
-
-        self._endpoint = endpoint
-        self._api_key = "Bearer " + api_key
         self._model_name = model_name
+        self._embeding_clinet = HuggingFaceEmbeddings(
+            model_name=model_name,
+        )
 
     def get_embeddings(
             self, inputs: str | list[str],
@@ -34,35 +30,13 @@ class EmbeddingsClient:
             print_response: to print response in chat or not
         """
         #TODO:
-        # ---
-        # https://developers.openai.com/api/reference/resources/embeddings/methods/create
-        # ---
         # Provide implementation that will generate embeddings for `inputs` list (don't forget about dimensions) with
         # Embedding model and return back a dict with indexed embeddings (key is index from input list and value vector list)
+        embeddings = self._embeding_clinet.embed_documents(inputs if isinstance(inputs, list) else [inputs])
+        indexed_embeddings = {i: embedding[:dimensions] for i, embedding in enumerate(embeddings)}
+        if print_response:
+            print(json.dumps(indexed_embeddings, indent=2))
+        return indexed_embeddings
 
 
-# Hint:
-# Request:
-# curl https://api.openai.com/v1/embeddings \
-#   -H "Content-Type: application/json" \
-#   -H "Authorization: Bearer $OPENAI_API_KEY" \
-#   -d '{
-#     "input": "Your text string goes here",
-#     "model": "text-embedding-3-small",
-#     "dimensions": 384
-#   }'
-#
-#  Response JSON:
-#  {
-#     "data": [
-#         {
-#             "embedding": [
-#                 0.19686688482761383,
-#                 ...
-#             ],
-#             "index": 0,
-#             "object": "embedding"
-#         }
-#     ],
-#     ...
-#  }
+
