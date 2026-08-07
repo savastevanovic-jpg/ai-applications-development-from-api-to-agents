@@ -7,5 +7,5 @@
 # (structured replies, confirmations, error handling, professional tone). Keep it concise and domain-focused.
 # Don't forget that the implementation only with Users Management MCP doesn't have any WEB search!
 SYSTEM_PROMPT="""
-{YOUR PROMPT}
+You are a User Management Agent designed to assist with managing user profiles in a dynamic database. Your primary role is to perform CRUD operations (Create, Read, Update, Delete) and facilitate searching and enriching user profiles.
 """

@@ -18,16 +18,25 @@ class HttpMCPClient(MCPClient):
     async def __aenter__(self):
         #TODO:
         # 1. Call `streamable_http_client` method with `mcp_server_url` and assign to `self._streams_context`
+        self._streams_context = streamable_http_client(self.mcp_server_url)
         # 2. Call `await self._streams_context.__aenter__()` and assign to `read_stream, write_stream, _`
+        read_stream, write_stream, _ = await self._streams_context.__aenter__()
         # 3. Create `ClientSession(read_stream, write_stream)` and assign to `self._session_context`
+        self._session_context = ClientSession(read_stream, write_stream)
         # 4. Call `await self._session_context.__aenter__()` and assign it to `self.session`
+        self.session = await self._session_context.__aenter__()
         # 5. Call `self.session.initialize()`, and print its result (to check capabilities of MCP server later)
+        capabilities = await self.session.initialize()
+        print(f"Connected to MCP server with capabilities: {capabilities}")
         # 6. return self
-        raise NotImplementedError()
+        return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         #TODO:
         # This is shutdown method.
         # If session is present and session context is present as well then shutdown the session context (__aexit__ method with params)
         # If streams context is present then shutdown the streams context (__aexit__ method with params)
-        raise NotImplementedError()
+        if self.session and self._session_context:
+            await self._session_context.__aexit__(exc_type, exc_val, exc_tb)
+        if self._streams_context:
+            await self._streams_context.__aexit__(exc_type, exc_val, exc_tb)

@@ -10,7 +10,9 @@ from commons.user_service.user_info import UserSearchRequest, UserCreate, UserUp
 #       - name is "users-management-mcp-server",
 #       - host is "0.0.0.0",
 #       - port is 8005,
+mcp = FastMCP(name="users-management-mcp-server", host="0.0.0.0", port=8005)
 # 2. Create UserServiceClient
+client = UserServiceClient()
 
 
 # ==================== TOOLS ====================
@@ -22,10 +24,30 @@ from commons.user_service.user_info import UserSearchRequest, UserCreate, UserUp
 # ---
 # Tools:
 # 1. `get_user_by_id`:-
+@mcp.tool(name="get-user-by-id", description="Get user by ID")
+async def get_user_by_id(user_id: str) -> str:
+    return client.get_user(user_id)
 # 2. `delete_user`:-
+@mcp.tool(name="delete-user", description="Delete user")
+async def delete_user(user_id: str) -> str:
+    return client.delete_user(user_id)
 # 3. `search_user`:-
+@mcp.tool(name="search-user", description="Search users")
+async def search_user(search_request: UserSearchRequest) -> str:
+    return client.search_users(
+        name=search_request.name,
+        surname=search_request.surname,
+        email=search_request.email,
+        gender=search_request.gender,
+    )
 # 4. `add_user`:-
+@mcp.tool(name="add-user", description="Add new user")
+async def add_user(user_create: UserCreate) -> str:
+    return client.add_user(user_create)
 # 5. `update_user`:-
+@mcp.tool(name="update-user", description="Update user information")
+async def update_user(user_id: str, user_update: UserUpdate) -> str:
+    return client.update_user(user_id, user_update)
 
 # ==================== MCP RESOURCES ====================
 
@@ -39,6 +61,11 @@ from commons.user_service.user_info import UserSearchRequest, UserCreate, UserUp
 #   - mime_type="image/png"
 # 2. You need to get `flow.png` picture from `mcp_server` folder and return it as bytes.
 # 3. Don't forget to provide resource description
+@mcp.resource(uri="users-management://flow-diagram", mime_type="image/png", description="Flow diagram of User Service API endpoints")
+async def get_flow_diagram() -> bytes:
+    flow_diagram_path = Path(__file__).parent / "flow.png"
+    with open(flow_diagram_path, "rb") as f:
+        return f.read()
 
 
 # ==================== MCP PROMPTS ====================
@@ -48,7 +75,9 @@ from commons.user_service.user_info import UserSearchRequest, UserCreate, UserUp
 # https://gofastmcp.com/servers/prompts
 # ---
 # Prompts are prepared, you need just properly return them and provide descriptions of them"
-"""
+@mcp.prompt(name="search-strategy", description="Guides users on how to search through the user database")
+def search_strategy_prompt() -> str:
+    return """
 You are helping users search through a dynamic user database. The database contains 
 realistic synthetic user profiles with the following searchable fields:
 
@@ -99,7 +128,9 @@ why certain approaches might be more effective for their goals.
 """
 
 # Guides creation of realistic user profiles
-"""
+@mcp.prompt(name="user-profile-creation", description="Guides users on how to create realistic user profiles")
+def user_profile_creation_prompt() -> str:
+    return """
 You are helping create realistic user profiles for the system. Follow these guidelines 
 to ensure data consistency and realism.
 
