@@ -1,69 +1,76 @@
-import json
-from collections import defaultdict
 from typing import Any
 
-from openai import AsyncOpenAI
+from anthropic import AsyncAnthropic
 
 from commons.models.message import Message
 from commons.models.role import Role
-from t9_mcp_fundamentals.agent.mcp_clients.base import MCPClient
+from t11_mcp_auth.agent.mcp_clients._base import T11MCPClient
 
 
 class AgentMCPAuth:
     """Handles AI model interactions and integrates with MCP client"""
 
-    def __init__(self, api_key: str, model: str, tools: list[dict[str, Any]], mcp_client: MCPClient):
-        self.model=model
+    def __init__(self, api_key: str, model: str, tools: list[dict[str, Any]], mcp_client: T11MCPClient):
+        self.model = model
         self.tools = tools
         self.mcp_client = mcp_client
-        self.openai = AsyncOpenAI(api_key=api_key)
+        self.anthropic = AsyncAnthropic(api_key=api_key)
 
-    def _collect_tool_calls(self, tool_deltas):
-        """Convert streaming tool call deltas to complete tool calls"""
-        tool_dict = defaultdict(lambda: {"id": None, "function": {"arguments": "", "name": None}, "type": None})
+    @staticmethod
+    def _to_anthropic_message(message: Message) -> dict[str, Any]:
+        """Convert a generic Message into Anthropic's expected request shape"""
+        if message.tool_call_id:
+            return {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": message.tool_call_id,
+                        "content": message.content,
+                    }
+                ],
+            }
+        if message.role == Role.ASSISTANT and message.tool_calls:
+            content = [{"type": "text", "text": message.content}] if message.content else []
+            content += message.tool_calls
+            return {"role": Role.ASSISTANT.value, "content": content}
+        return message.to_dict()
 
-        for delta in tool_deltas:
-            idx = delta.index
-            if delta.id: tool_dict[idx]["id"] = delta.id
-            if delta.function.name: tool_dict[idx]["function"]["name"] = delta.function.name
-            if delta.function.arguments: tool_dict[idx]["function"]["arguments"] += delta.function.arguments
-            if delta.type: tool_dict[idx]["type"] = delta.type
-
-        return list(tool_dict.values())
+    def _collect_tool_calls(self, content_blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Extract tool_use blocks from the assembled streaming content"""
+        return [block for block in content_blocks if block["type"] == "tool_use"]
 
     async def _stream_response(self, messages: list[Message]) -> Message:
-        """Stream OpenAI response and handle tool calls"""
-        stream = await self.openai.chat.completions.create(
-            **{
-                "model": self.model,
-                "messages": [msg.to_dict() for msg in messages],
-                "tools": self.tools,
-                "temperature": 0.0,
-                "stream": True
-            }
-        )
+        """Stream Anthropic response and handle tool calls"""
+        system_prompt = next((msg.content for msg in messages if msg.role == Role.SYSTEM), "")
+        conversation = [msg for msg in messages if msg.role != Role.SYSTEM]
 
-        content = ""
-        tool_deltas = []
+        async with self.anthropic.messages.stream(
+            model=self.model,
+            max_tokens=1024,
+            messages=[self._to_anthropic_message(msg) for msg in conversation],
+            tools=self.tools,
+            temperature=0.0,
+            system=system_prompt,
+        ) as stream:
 
-        print("🤖: ", end="", flush=True)
+            print("🤖: ", end="", flush=True)
 
-        async for chunk in stream:
-            delta = chunk.choices[0].delta
+            async for event in stream:
+                if event.type == "content_block_delta" and event.delta.type == "text_delta":
+                    print(event.delta.text, end="", flush=True)
 
-            # Stream content
-            if delta.content:
-                print(delta.content, end="", flush=True)
-                content += delta.content
+            print()
+            final_message = await stream.get_final_message()
 
-            if delta.tool_calls:
-                tool_deltas.extend(delta.tool_calls)
+        content_blocks = [block.model_dump() for block in final_message.content]
+        text_content = "".join(block["text"] for block in content_blocks if block["type"] == "text")
+        tool_calls = self._collect_tool_calls(content_blocks)
 
-        print()
         return Message(
             role=Role.ASSISTANT,
-            content=content,
-            tool_calls=self._collect_tool_calls(tool_deltas) if tool_deltas else []
+            content=text_content,
+            tool_calls=tool_calls if tool_calls else [],
         )
 
     async def get_completion(self, messages: list[Message]) -> Message:
@@ -82,8 +89,8 @@ class AgentMCPAuth:
     async def _call_tools(self, ai_message: Message, messages: list[Message]):
         """Execute tool calls using MCP client"""
         for tool_call in ai_message.tool_calls:
-            tool_name = tool_call["function"]["name"]
-            tool_args = json.loads(tool_call["function"]["arguments"])
+            tool_name = tool_call["name"]
+            tool_args = tool_call["input"] if tool_call["input"] else {}
 
             try:
                 tool_result = await self.mcp_client.call_tool(tool_name, tool_args)
@@ -91,7 +98,7 @@ class AgentMCPAuth:
                 # Add tool result to history
                 messages.append(
                     Message(
-                        role=Role.TOOL,
+                        role=Role.USER,
                         content=str(tool_result),
                         tool_call_id=tool_call["id"],
                     )
@@ -101,7 +108,7 @@ class AgentMCPAuth:
                 print(f"Error: {error_msg}")
                 messages.append(
                     Message(
-                        role=Role.TOOL,
+                        role=Role.USER,
                         content=error_msg,
                         tool_call_id=tool_call["id"],
                     )

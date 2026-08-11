@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import httpx
@@ -21,30 +22,35 @@ class ApiKeyMCPClient(T11MCPClient):
     async def __aenter__(self):
         #TODO:
         # 1. Create an `httpx.AsyncClient` that passes the API key in the `X-API-Key` request header
+        headers = {
+            "X-API-Key": self.api_key
+        }
+        client = httpx.AsyncClient(headers=headers)
         # 2. Create a `streamable_http_client` using `self.mcp_server_url` and the http client above,
         #    assign to `self._streams_context`, then enter it to unpack `read_stream, write_stream, _`
+        self._streams_context = streamable_http_client(self.mcp_server_url, http_client=client)
+        read_stream, write_stream, _ = await self._streams_context.__aenter__()
         # 3. Create a `ClientSession(read_stream, write_stream)`, assign to `self._session_context`,
         #    then enter it and assign the result to `self.session`
+        self._session_context = ClientSession(read_stream, write_stream)
+        self.session = await self._session_context.__aenter__()
         # 4. Initialize the session and print the result as indented JSON
+        init_result = await self.session.initialize()
+        print(json.dumps(init_result.model_dump(), indent=4, default=str))
+
         # 5. Return `self`
-        raise NotImplementedError()
+        return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         #TODO:
         # 1. If session context exists — exit it, passing through the exception info
+        if self._session_context:
+            await self._session_context.__aexit__(exc_type, exc_val, exc_tb)
         # 2. If streams context exists — exit it, passing through the exception info
-        raise NotImplementedError()
+        if self._streams_context:
+            await self._streams_context.__aexit__(exc_type, exc_val, exc_tb)
 
-    async def get_tools(self) -> list[dict[str, Any]]:
-        """Get available tools from MCP server"""
-        if not self.session:
-            raise RuntimeError("MCP client not connected. Call connect() first.")
 
-        #TODO:
-        # 1. Fetch available tools from the session
-        # 2. Return them as a list of dicts in the OpenAI function-calling format, e.g.:
-        #    {"type": "function", "function": {"name": ..., "description": ..., "parameters": ...}}
-        raise NotImplementedError()
 
     async def call_tool(self, tool_name: str, tool_args: dict[str, Any]) -> Any:
         """Call a specific tool on the MCP server"""
@@ -55,6 +61,29 @@ class ApiKeyMCPClient(T11MCPClient):
 
         #TODO:
         # 1. Call the tool on the session and assign the result to `tool_result: CallToolResult`
+        tool_result: CallToolResult = await self.session.call_tool(tool_name, tool_args)
         # 2. Get the first element from `tool_result.content` and print it with the prefix `"    ⚙️: "`
+        print(f"    ⚙️: {tool_result.content[0]}")
         # 3. If the content is a `TextContent` instance — return its `.text`, otherwise return `str(content)`
-        raise NotImplementedError()
+        if isinstance(tool_result.content[0], TextContent):
+            return tool_result.content[0].text
+        return str(tool_result.content[0])
+
+    async def get_tools(self) -> list[dict[str, Any]]:
+        """Get available tools from MCP server"""
+        if not self.session:
+            raise RuntimeError("MCP client not connected. Call connect() first.")
+
+        #TODO:
+        # 1. Fetch available tools from the session
+        tools = await self.session.list_tools()
+        # 2. Return them as a list of dicts in Anthropic's tool format, e.g.:
+        #    {"name": ..., "description": ..., "input_schema": ...}
+        return [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "input_schema": tool.inputSchema,
+            }
+            for tool in tools.tools
+        ]
